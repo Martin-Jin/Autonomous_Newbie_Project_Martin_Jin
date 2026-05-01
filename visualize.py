@@ -917,7 +917,9 @@ class VisualizerApp:
     def refresh_view(self):
         scenario = self.current_scenario()
         inputs = scenario["inputs"]
-        steering, speed_action = self.run_controller_for_current_scenario()
+        # steering, speed_action = self.run_controller_for_current_scenario()
+        steering = self.command_steering
+        speed_action = self.command_speed_action
 
         self.command_steering = steering
         self.command_speed_action = speed_action

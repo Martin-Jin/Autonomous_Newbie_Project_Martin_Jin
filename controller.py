@@ -44,19 +44,30 @@ def controller(
             "ACCELERATE", "SLOW", "STOP"
     """
     # Tolerances used for each property
-    DANGER_OBSTACLE_M = 1.0
-    CAUTION_OBSTACLE_M = 2.0
+    DANGER_OBSTACLE_M = 1.5
+    SAFETY_CORRECTION_M = 1 # minimum distance to attempt correction when too close
+    CAUTION_OBSTACLE_M = speed_mps * 2
+    CAUTION_OBSTACLE_M = max(min(CAUTION_OBSTACLE_M, 4.5), 2)
 
     MILD_HEADING_DEG = 3.0 # tolerance for low heading error
     LARGE_HEADING_DEG = 15.0 # tolerance for large heading error
+    SAFETY_CORRECTION_HEADING_DEG = 45 # Vehicle should have at least turned this much if trying to avoid obstacle when too close
 
     MILD_OFFSET_M = 0.15 # tolerance for low off set error
     LARGE_OFFSET_M = 0.40 # tolerance for large off set error
+    SAFETY_OFFSET_M = 0.2 # if vehicle almost completes turn, can keep turning even when close to obstacle
 
     HIGH_SPEED_MPS = 3.0
+    CLOSE_CORRECTION_SPEED_MPS = 1.5 # Acceptable speed to try avoiding an obstacle when too close
+    CAUTION_CORRECTION_SPEED_MPS = 2 # Acceptable speed to try avoiding an obstacle when close
 
     centered = abs(lane_offset_m) <= MILD_OFFSET_M # within low off set error considered straight
     small_heading_error = abs(heading_error_deg) <= MILD_HEADING_DEG # like wise for heading error
+
+    well_aligned = False
+    aligned = False
+    partially_aligned = False
+    conflict = False
 
     steering = "STRAIGHT"
     speed_action = "ACCELERATE"
@@ -68,72 +79,88 @@ def controller(
     # When TOO CLOSE to an obstacle
     if obstacle_distance_m <= DANGER_OBSTACLE_M:
         print("CAR TOO CLOSE")
-        # Stop vehicle if too close, and emergency stop is enabled
-        if e_stop:
-            steering = "STRAIGHT"
-            speed_action = "STOP"
-
-        # If no clear roads then stop
-        elif not left_clear and not right_clear:
-            steering = "STRAIGHT"
-            speed_action = "STOP"
-
-        # If left clear turn left slowly
-        elif left_clear and not right_clear:
-            steering = "LEFT"
-            speed_action = "SLOW"
-
-        # if right clear turn slowly
+        
+        if left_clear and not right_clear:
+            desired = "LEFT"
         elif right_clear and not left_clear:
-            steering = "RIGHT"
-            speed_action = "SLOW"
-
-        # Other wise if BOTH ways clear
-        # First ensure vehicle is aligned and on staright path
-        elif heading_error_deg > MILD_HEADING_DEG or lane_offset_m > MILD_OFFSET_M:
-            steering = "LEFT"
-            speed_action = "SLOW"
-
-        elif heading_error_deg < -MILD_HEADING_DEG or lane_offset_m < -MILD_OFFSET_M:
-            steering = "RIGHT"
-            speed_action = "SLOW"
-
-        # Then turn left to avoid obstacle
+            desired = "RIGHT"
+        elif left_clear and right_clear:
+            desired = "LEFT"  # default bias
         else:
-            steering = "LEFT"
+            return "STRAIGHT", "STOP"
+
+        if desired == "LEFT":
+            # VERY GOOD: both helping
+            if heading_error_deg < -MILD_HEADING_DEG and lane_offset_m < -MILD_OFFSET_M:
+                well_aligned = True
+                print("WELL ALIGNED")
+
+            # GOOD: already strongly turning left
+            if heading_error_deg < -SAFETY_CORRECTION_HEADING_DEG:
+                aligned = True
+
+            # PARTIAL: one helping, one neutral
+            elif heading_error_deg < -MILD_HEADING_DEG or lane_offset_m < -MILD_OFFSET_M:
+                partially_aligned = True
+
+            # CONFLICT: both wrong direction
+            elif heading_error_deg > MILD_HEADING_DEG and lane_offset_m > MILD_OFFSET_M:
+                conflict = True
+
+        elif desired == "RIGHT":
+            if heading_error_deg > MILD_HEADING_DEG and lane_offset_m > MILD_OFFSET_M:
+                well_aligned = True
+
+            if heading_error_deg > SAFETY_CORRECTION_HEADING_DEG:
+                aligned = True
+
+            elif heading_error_deg > MILD_HEADING_DEG or lane_offset_m > MILD_OFFSET_M:
+                partially_aligned = True
+
+            elif heading_error_deg < -MILD_HEADING_DEG and lane_offset_m < -MILD_OFFSET_M:
+                conflict = True
+
+        steering = desired
+
+        # STOP if e stop or too close 
+        if e_stop or (obstacle_distance_m < SAFETY_CORRECTION_M and abs(lane_offset_m) < SAFETY_OFFSET_M and not well_aligned): 
+            print("TOO CLOSE STOP")
+            steering = "STRAIGHT"
+            speed_action = "STOP"
+            return steering, speed_action
+
+        if (well_aligned or aligned) and speed_mps <= CLOSE_CORRECTION_SPEED_MPS:
             speed_action = "SLOW"
+
+        elif conflict or partially_aligned:
+            speed_action = "STOP"
+        else:
+            speed_action = "STOP"
+
+        return steering, speed_action
 
     # If close but NOT too close
     elif obstacle_distance_m <= CAUTION_OBSTACLE_M:
         print("CAR CLOSE TO OBSTACLE")
-        # Stop if no where to turn
-        if not left_clear and not right_clear:
-            steering = "STRAIGHT"
-            speed_action = "STOP"
 
         # Turn left if right not clear
-        elif left_clear and not right_clear:
+        if left_clear and not right_clear:
             steering = "LEFT"
-            speed_action = "SLOW"
+            speed_action = "SLOW"       
 
         # Turn right if left not clear
         elif right_clear and not left_clear:
             steering = "RIGHT"
             speed_action = "SLOW"
 
-        # If both ways clear, first adjust to align vehichle 
-        elif heading_error_deg > MILD_HEADING_DEG or lane_offset_m > MILD_OFFSET_M:
+        # Turn left is both ways clear
+        else:
             steering = "LEFT"
             speed_action = "SLOW"
 
-        elif heading_error_deg < -MILD_HEADING_DEG or lane_offset_m < -MILD_OFFSET_M:
-            steering = "RIGHT"
-            speed_action = "SLOW"
-
-        #TODO go straight if there is an obstacle ahead??
-        else:
-            steering = "STRAIGHT"
-            speed_action = "SLOW"
+        # STOP if going too fast to correct
+        if speed_mps > CAUTION_CORRECTION_SPEED_MPS:
+            speed_action = "STOP"
 
     # ----------- IF THERE IS NO OBSTACLES -----------
     # If aligned (within tolerance specified) just go straight
@@ -158,14 +185,14 @@ def controller(
         else: speed_action = "SLOW"
 
     # LARGE HEADING / OFFSET ERROR CORRECTION
-    if heading_error_deg > LARGE_HEADING_DEG or lane_offset_m > LARGE_OFFSET_M:
+    elif heading_error_deg > LARGE_HEADING_DEG or lane_offset_m > LARGE_OFFSET_M:
         print("STEER LEFT, LARGE HEADING ERROR RIGHT")
         steering = "LEFT"
         # if high speed then slow down
         if (speed_mps <= HIGH_SPEED_MPS): speed_action = "ACCELERATE"
         else: speed_action = "SLOW"
 
-    if heading_error_deg < -LARGE_HEADING_DEG or lane_offset_m < -LARGE_OFFSET_M:
+    elif heading_error_deg < -LARGE_HEADING_DEG or lane_offset_m < -LARGE_OFFSET_M:
         print("STEER RIGHT, LARGE HEADING ERROR LEFT")
         steering = "RIGHT"
         # if high speed then slow down
