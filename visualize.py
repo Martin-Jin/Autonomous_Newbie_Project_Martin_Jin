@@ -243,7 +243,7 @@ class VisualizerApp:
 
         self.reset_vehicle_state()
         self.refresh_view()
-
+    
     def load_visual_assets(self):
         bg_files = {
             "bg": "bg.png",
@@ -321,6 +321,30 @@ class VisualizerApp:
 
     def x_to_lane_offset_m(self, x):
         return (x - ROAD_CENTER_X) / PIXELS_PER_METER_X
+    
+    def build_live_inputs(self):
+        scenario = self.current_scenario()
+        base_inputs = scenario["inputs"]
+
+        # Estimate updated values from current vehicle state
+        live_inputs = base_inputs.copy()
+
+        live_inputs["lane_offset_m"] = self.x_to_lane_offset_m(self.vehicle_x)
+        live_inputs["heading_error_deg"] = self.vehicle_heading_deg
+        live_inputs["speed_mps"] = self.vehicle_speed_mps
+
+        # Update obstacle distance (approximate based on vertical distance)
+        rect = self.obstacle_rect_from_inputs(base_inputs)
+        if rect is not None:
+            _, y1, _, y2 = rect
+            obstacle_cy = (y1 + y2) / 2.0
+
+            dy_pixels = self.vehicle_y - obstacle_cy
+            dy_meters = dy_pixels / MOTION_PIXELS_PER_MPS
+
+            live_inputs["obstacle_distance_m"] = max(0.0, dy_meters)
+
+        return live_inputs
 
     def obstacle_y_from_distance(self, distance_m):
         if distance_m >= 999.0:
@@ -556,12 +580,97 @@ class VisualizerApp:
         elif self.vehicle_heading_deg < -90.0:
             self.vehicle_heading_deg = -90.0
 
+    # ORIGINAL def animate_step(self):
+        # if not self.animating:
+        #     return
+
+        # dt = FRAME_DELAY_MS / 1000.0
+        # self.frame_i += 1
+
+        # heading_locked = abs(self.vehicle_heading_deg) >= 90.0
+
+        # if not heading_locked:
+        #     self.apply_controller_speed_action(dt)
+        #     self.apply_controller_steering(dt)
+        # else:
+        #     if self.vehicle_heading_deg > 0:
+        #         self.vehicle_heading_deg = 90.0
+        #     else:
+        #         self.vehicle_heading_deg = -90.0
+
+        # distance_px = self.vehicle_speed_mps * MOTION_PIXELS_PER_MPS * dt
+        # heading_rad = math.radians(self.vehicle_heading_deg)
+
+        # dx = math.sin(heading_rad) * distance_px
+        # dy = -math.cos(heading_rad) * distance_px
+
+        # self.vehicle_x += dx
+        # self.vehicle_y += dy
+
+        # if self.check_obstacle_collision():
+        #     self.animating = False
+        #     self.crashed = True
+        #     self.crash_reason = "Collided with obstacle"
+        #     self.explosion_x = self.vehicle_x
+        #     self.explosion_y = self.vehicle_y
+        #     self.status_label.config(text="Collision with obstacle")
+        #     self.refresh_view()
+        #     return
+
+        # if self.check_road_boundary_collision():
+        #     self.animating = False
+        #     self.crashed = True
+        #     self.crash_reason = "Hit road boundary"
+        #     self.explosion_x = self.vehicle_x
+        #     self.explosion_y = self.vehicle_y
+        #     self.status_label.config(text="Collision with road boundary")
+        #     self.refresh_view()
+        #     return
+
+        # self.refresh_view()
+
+        # out_of_bounds = (
+        #     self.vehicle_x < -40
+        #     or self.vehicle_x > CANVAS_W + 40
+        #     or self.vehicle_y < -40
+        #     or self.vehicle_y > CANVAS_H + 40
+        # )
+
+        # stopped_from_command = (
+        #     self.command_speed_action == "STOP"
+        #     and self.vehicle_speed_mps <= 0.02
+        #     and self.frame_i > 8
+        # )
+
+        # finished_by_length = self.frame_i >= MAX_ANIMATION_FRAMES
+
+        # if out_of_bounds or stopped_from_command or finished_by_length:
+        #     self.animating = False
+        #     self.after_id = None
+        #     self.status_label.config(text="Playback complete")
+        #     return
+
+        # self.after_id = self.root.after(FRAME_DELAY_MS, self.animate_step)
     def animate_step(self):
         if not self.animating:
             return
 
         dt = FRAME_DELAY_MS / 1000.0
         self.frame_i += 1
+
+        # 🔁 CLOSED LOOP: recompute inputs + controller every frame
+        live_inputs = self.build_live_inputs()
+
+        self.command_steering, self.command_speed_action = controller(
+            live_inputs["obstacle_distance_m"],
+            live_inputs["lane_offset_m"],
+            live_inputs["heading_error_deg"],
+            live_inputs["speed_mps"],
+            live_inputs["e_stop"],
+            live_inputs["left_clear"],
+            live_inputs["right_clear"],
+            live_inputs["sensor_valid"]
+        )
 
         heading_locked = abs(self.vehicle_heading_deg) >= 90.0
 
