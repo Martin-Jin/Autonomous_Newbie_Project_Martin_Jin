@@ -72,6 +72,9 @@ def controller(
     steering = "STRAIGHT"
     speed_action = "ACCELERATE"
 
+    obstacle = obstacle_distance_m <= CAUTION_OBSTACLE_M
+    obstacleTooClose = obstacle_distance_m <= DANGER_OBSTACLE_M
+
     # Determine the orientation the vehicle, for when approaching an obstacle
     if left_clear and not right_clear:
         desired = "LEFT"
@@ -118,18 +121,18 @@ def controller(
     
     # ----------- OBSTACLE AVOIDANCE LOGIC -----------
     # When TOO CLOSE to an obstacle
-    if obstacle_distance_m <= DANGER_OBSTACLE_M:
+    if obstacleTooClose:
         print("CAR TOO CLOSE")
 
         steering = desired
 
-        # STOP if e stop or too close 
-        if e_stop or (obstacle_distance_m < SAFETY_CORRECTION_M and abs(lane_offset_m) < SAFETY_OFFSET_M and not well_aligned): 
+        # STOP if e stop or too close, or too close to the edge of the road
+        if e_stop or (obstacle_distance_m < SAFETY_CORRECTION_M and abs(lane_offset_m) < SAFETY_OFFSET_M and not well_aligned) or abs(lane_offset_m) > LARGE_OFFSET_M: 
             print("TOO CLOSE STOP")
             steering = "STRAIGHT"
             speed_action = "STOP"
             return steering, speed_action
-
+        
         if (well_aligned or aligned) and speed_mps <= CLOSE_CORRECTION_SPEED_MPS:
             speed_action = "SLOW"
 
@@ -141,23 +144,24 @@ def controller(
         return steering, speed_action
 
     # If close but NOT too close
-    elif obstacle_distance_m <= CAUTION_OBSTACLE_M:
+    elif obstacle:
         print("CAR CLOSE TO OBSTACLE")
 
-        # Turn left if right not clear
-        if left_clear and not right_clear:
-            steering = "LEFT"
-            speed_action = "SLOW"       
+        # Turn left if right not clear, if there is enough space , other wise try correct. Or if both ways clear
+        if (left_clear and not right_clear) or (left_clear and right_clear):
+            speed_action = "SLOW"
+            if lane_offset_m > -LARGE_OFFSET_M:
+                steering = "LEFT"
+            elif lane_offset_m <= -LARGE_OFFSET_M:
+                steering = "RIGHT"
 
-        # Turn right if left not clear
+        # Turn right if left not clear, if there is enough space, other wise try correct
         elif right_clear and not left_clear:
-            steering = "RIGHT"
             speed_action = "SLOW"
-
-        # Turn left is both ways clear
-        else:
-            steering = "LEFT"
-            speed_action = "SLOW"
+            if lane_offset_m < LARGE_OFFSET_M:
+                steering = "RIGHT"
+            elif lane_offset_m >= LARGE_OFFSET_M:
+                steering = "LEFT"
 
         # STOP if going too fast to correct
         if speed_mps > CAUTION_CORRECTION_SPEED_MPS:
