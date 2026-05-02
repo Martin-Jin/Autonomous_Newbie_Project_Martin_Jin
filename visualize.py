@@ -658,7 +658,7 @@ class VisualizerApp:
         dt = FRAME_DELAY_MS / 1000.0
         self.frame_i += 1
 
-        # 🔁 CLOSED LOOP: recompute inputs + controller every frame
+        # CLOSED LOOP: recompute inputs + controller every frame
         live_inputs = self.build_live_inputs()
 
         self.command_steering, self.command_speed_action = controller(

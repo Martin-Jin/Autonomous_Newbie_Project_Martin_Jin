@@ -47,7 +47,7 @@ def controller(
     DANGER_OBSTACLE_M = 1.5
     SAFETY_CORRECTION_M = 1 # minimum distance to attempt correction when too close
     CAUTION_OBSTACLE_M = speed_mps * 2
-    CAUTION_OBSTACLE_M = max(min(CAUTION_OBSTACLE_M, 4.5), 2)
+    CAUTION_OBSTACLE_M = max(min(CAUTION_OBSTACLE_M, 4), 2)
 
     MILD_HEADING_DEG = 3.0 # tolerance for low heading error
     LARGE_HEADING_DEG = 15.0 # tolerance for large heading error
@@ -72,6 +72,47 @@ def controller(
     steering = "STRAIGHT"
     speed_action = "ACCELERATE"
 
+    # Determine the orientation the vehicle, for when approaching an obstacle
+    if left_clear and not right_clear:
+        desired = "LEFT"
+    elif right_clear and not left_clear:
+        desired = "RIGHT"
+    elif left_clear and right_clear:
+        desired = "LEFT"  # default bias
+    else:
+        return "STRAIGHT", "STOP"
+
+    if desired == "LEFT":
+        # VERY GOOD: Turning left + facing left + left offset
+        if heading_error_deg < -MILD_HEADING_DEG and lane_offset_m < -MILD_OFFSET_M:
+            well_aligned = True
+            print("WELL ALIGNED")
+
+        # GOOD: Facing towards strongly towards the left
+        if heading_error_deg < -SAFETY_CORRECTION_HEADING_DEG:
+            aligned = True
+
+        # PARTIAL: one helping, one neutral
+        elif heading_error_deg < -MILD_HEADING_DEG or lane_offset_m < -MILD_OFFSET_M:
+            partially_aligned = True
+
+        # CONFLICT: both wrong direction
+        elif heading_error_deg > MILD_HEADING_DEG and lane_offset_m > MILD_OFFSET_M:
+            conflict = True
+
+    elif desired == "RIGHT":
+        if heading_error_deg > MILD_HEADING_DEG and lane_offset_m > MILD_OFFSET_M:
+            well_aligned = True
+
+        if heading_error_deg > SAFETY_CORRECTION_HEADING_DEG:
+            aligned = True
+
+        elif heading_error_deg > MILD_HEADING_DEG or lane_offset_m > MILD_OFFSET_M:
+            partially_aligned = True
+
+        elif heading_error_deg < -MILD_HEADING_DEG and lane_offset_m < -MILD_OFFSET_M:
+            conflict = True
+
     if not sensor_valid:
         return "STRAIGHT", "STOP"
     
@@ -79,46 +120,6 @@ def controller(
     # When TOO CLOSE to an obstacle
     if obstacle_distance_m <= DANGER_OBSTACLE_M:
         print("CAR TOO CLOSE")
-        
-        if left_clear and not right_clear:
-            desired = "LEFT"
-        elif right_clear and not left_clear:
-            desired = "RIGHT"
-        elif left_clear and right_clear:
-            desired = "LEFT"  # default bias
-        else:
-            return "STRAIGHT", "STOP"
-
-        if desired == "LEFT":
-            # VERY GOOD: both helping
-            if heading_error_deg < -MILD_HEADING_DEG and lane_offset_m < -MILD_OFFSET_M:
-                well_aligned = True
-                print("WELL ALIGNED")
-
-            # GOOD: already strongly turning left
-            if heading_error_deg < -SAFETY_CORRECTION_HEADING_DEG:
-                aligned = True
-
-            # PARTIAL: one helping, one neutral
-            elif heading_error_deg < -MILD_HEADING_DEG or lane_offset_m < -MILD_OFFSET_M:
-                partially_aligned = True
-
-            # CONFLICT: both wrong direction
-            elif heading_error_deg > MILD_HEADING_DEG and lane_offset_m > MILD_OFFSET_M:
-                conflict = True
-
-        elif desired == "RIGHT":
-            if heading_error_deg > MILD_HEADING_DEG and lane_offset_m > MILD_OFFSET_M:
-                well_aligned = True
-
-            if heading_error_deg > SAFETY_CORRECTION_HEADING_DEG:
-                aligned = True
-
-            elif heading_error_deg > MILD_HEADING_DEG or lane_offset_m > MILD_OFFSET_M:
-                partially_aligned = True
-
-            elif heading_error_deg < -MILD_HEADING_DEG and lane_offset_m < -MILD_OFFSET_M:
-                conflict = True
 
         steering = desired
 
@@ -198,7 +199,5 @@ def controller(
         # if high speed then slow down
         if (speed_mps <= HIGH_SPEED_MPS): speed_action = "ACCELERATE"
         else: speed_action = "SLOW"
-
-    #TODO Could consider different combinations, of low off set + high heading error and what to do
 
     return steering, speed_action
