@@ -119,15 +119,21 @@ def controller(
     if not sensor_valid:
         return "STRAIGHT", "STOP"
     
+    # ----------- Check for emergency stop -----------
+    if e_stop:
+        steering = "STRAIGHT"
+        speed_action = "STOP"
+        return steering, speed_action
+    
     # ----------- OBSTACLE AVOIDANCE LOGIC -----------
     # When TOO CLOSE to an obstacle
-    if obstacleTooClose:
+    elif obstacleTooClose:
         print("CAR TOO CLOSE")
 
         steering = desired
 
-        # STOP if e stop or too close, or too close to the edge of the road
-        if e_stop or (obstacle_distance_m < SAFETY_CORRECTION_M and abs(lane_offset_m) < SAFETY_OFFSET_M and not well_aligned) or abs(lane_offset_m) > LARGE_OFFSET_M: 
+        # STOP if too close, or too close to the edge of the road
+        if (obstacle_distance_m < SAFETY_CORRECTION_M and abs(lane_offset_m) < SAFETY_OFFSET_M and not well_aligned) or abs(lane_offset_m) > LARGE_OFFSET_M: 
             print("TOO CLOSE STOP")
             steering = "STRAIGHT"
             speed_action = "STOP"
